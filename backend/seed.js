@@ -55,11 +55,50 @@ const sampleColleges = [
   { name: "Symbiosis Institute of Technology", location: "Pune", fees: 1500000, rating: 4.0, courses: ["B.Tech", "M.Tech", "Ph.D"], placementPercentage: 82 }
 ];
 
+// --- DATA ENRICHMENT LOGIC ---
+// This automatically injects realistic mock data for the new schema fields
+const enrichedColleges = sampleColleges.map(college => {
+  const isTopTier = college.rating >= 4.5;
+  const isMidTier = college.rating >= 4.2 && college.rating < 4.5;
+
+  let avgPkg = isTopTier ? "18 LPA" : isMidTier ? "10 LPA" : "6.5 LPA";
+  let recruiters = isTopTier 
+    ? ["Google", "Microsoft", "Amazon", "Atlassian", "Goldman Sachs"] 
+    : isMidTier 
+      ? ["TCS", "Infosys", "Deloitte", "Accenture", "Cognizant"]
+      : ["Wipro", "Tech Mahindra", "Capgemini", "IBM"];
+  
+  // Calculate realistic hostel fees (roughly 10-15% of tuition, minimum 45k)
+  let calculatedHostelFee = Math.max(Math.round(college.fees * 0.12), 45000);
+
+  return {
+    ...college,
+    averagePackage: avgPkg,
+    topRecruiters: recruiters,
+    hostel: {
+      available: true,
+      fees: calculatedHostelFee,
+      roomType: isTopTier ? "Single" : "Shared",
+      facilities: ["High-Speed WiFi", "Mess & Cafeteria", "Laundry Service", "24/7 Security", "Gymnasium"]
+    },
+    pros: isTopTier 
+      ? ["World-class faculty and research facilities", "Exceptional global alumni network", "Top-tier guaranteed placements"] 
+      : ["Excellent campus infrastructure", "Highly active placement cell", "Strong industry connections"],
+    cons: college.fees > 1200000 
+      ? ["Very high tuition fees", "Highly competitive grading environment"]
+      : ["Slightly remote campus location", "Hostel facilities require modernization"]
+  };
+});
+
 mongoose.connect(process.env.MONGO_URI)
   .then(async () => {
     await College.deleteMany(); // Clear existing
-    await College.insertMany(sampleColleges);
-    console.log("Database Seeded Successfully!");
+    // Insert the newly enriched data
+    await College.insertMany(enrichedColleges);
+    console.log("Database Seeded Successfully with Enriched Data!");
     process.exit(0);
   })
-  .catch(err => console.error(err));
+  .catch(err => {
+    console.error("Database Seeding Failed:", err);
+    process.exit(1);
+  });
