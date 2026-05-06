@@ -22,27 +22,48 @@ mongoose.connect(process.env.MONGO_URI)
 
 app.get('/api/colleges', async (req, res) => {
   try {
-    const { search, location, minFees, maxFees, page = 1, limit = 10 } = req.query;
+    // FIX: Added 'course' to the destructured query variables
+    const { search, location, course, minFees, maxFees, page = 1, limit = 10 } = req.query;
     let query = {};
+    
     if (search) query.name = { $regex: search, $options: 'i' };
     if (location) query.location = { $regex: location, $options: 'i' };
+    if (course) query.courses = course; // Now this works perfectly
+    
     if (minFees || maxFees) {
       query.fees = {};
       if (minFees) query.fees.$gte = Number(minFees);
       if (maxFees) query.fees.$lte = Number(maxFees);
     }
+    
     const skip = (Number(page) - 1) * Number(limit);
     const colleges = await College.find(query).skip(skip).limit(Number(limit));
     const total = await College.countDocuments(query);
+    
     res.json({ colleges, totalPages: Math.ceil(total / Number(limit)), currentPage: Number(page) });
   } catch (error) { res.status(500).json({ error: 'Server Error' }); }
 });
 
-app.get('/api/colleges/:id', async (req, res) => {
+// ✅ SPECIFIC ROUTES GO HERE (Before /:id wildcard)
+app.get('/api/colleges/locations', async (req, res) => {
   try {
-    const college = await College.findById(req.params.id);
-    if (!college) return res.status(404).json({ error: 'College not found' });
-    res.json(college);
+    const locations = await College.distinct('location');
+    res.json(locations.sort());
+  } catch (error) { res.status(500).json({ error: 'Server Error' }); }
+});
+
+app.get('/api/colleges/courses', async (req, res) => {
+  try {
+    const courses = await College.distinct('courses');
+    res.json(courses.sort());
+  } catch (error) { res.status(500).json({ error: 'Server Error' }); }
+});
+
+app.get('/api/colleges/max-fee', async (req, res) => {
+  try {
+    const highestCollege = await College.findOne().sort({ fees: -1 }).select('fees');
+    const maxFee = highestCollege ? highestCollege.fees : 2000000; 
+    res.json({ maxFee });
   } catch (error) { res.status(500).json({ error: 'Server Error' }); }
 });
 
@@ -54,7 +75,35 @@ app.post('/api/compare', async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Server Error' }); }
 });
 
-// ================= PREDICTOR API (NEW) =================
+// ⚠️ WILDCARD ROUTES GO LAST
+app.get('/api/colleges/:id', async (req, res) => {
+  try {
+    const college = await College.findById(req.params.id);
+    if (!college) return res.status(404).json({ error: 'College not found' });
+    res.json(college);
+  } catch (error) { res.status(500).json({ error: 'Server Error' }); }
+});
+
+app.get('/api/colleges/:id/similar', async (req, res) => {
+  try {
+    const currentCollege = await College.findById(req.params.id);
+    if (!currentCollege) return res.status(404).json({ error: 'College not found' });
+
+    const similarColleges = await College.find({
+      _id: { $ne: currentCollege._id },
+      $or: [
+        { location: currentCollege.location },
+        { rating: { $gte: currentCollege.rating - 0.2, $lte: currentCollege.rating + 0.2 } }
+      ]
+    })
+    .sort({ rating: -1 })
+    .limit(3); 
+
+    res.json(similarColleges);
+  } catch (error) { res.status(500).json({ error: 'Server Error' }); }
+});
+
+// ================= PREDICTOR API =================
 
 app.post('/api/predict', async (req, res) => {
   try {
@@ -63,24 +112,14 @@ app.post('/api/predict', async (req, res) => {
     let minRating = 0;
     let maxRating = 5;
 
-    // Rule-based logic mapping ranks to college rating tiers
-    if (rankNum <= 5000) {
-      minRating = 4.6; 
-      maxRating = 5.0; // Top tier
-    } else if (rankNum <= 20000) {
-      minRating = 4.3; 
-      maxRating = 4.6; // Mid-high tier
-    } else if (rankNum <= 50000) {
-      minRating = 4.0; 
-      maxRating = 4.3; // Mid tier
-    } else {
-      minRating = 0; 
-      maxRating = 4.0; // Accessible tier
-    }
+    if (rankNum <= 5000) { minRating = 4.6; maxRating = 5.0; } 
+    else if (rankNum <= 20000) { minRating = 4.3; maxRating = 4.6; } 
+    else if (rankNum <= 50000) { minRating = 4.0; maxRating = 4.3; } 
+    else { minRating = 0; maxRating = 4.0; }
 
     const colleges = await College.find({
       rating: { $gte: minRating, $lt: maxRating }
-    }).sort({ rating: -1 }).limit(6); // Return top 6 matches
+    }).sort({ rating: -1 }).limit(6); 
 
     res.json(colleges);
   } catch (error) { res.status(500).json({ error: 'Server Error' }); }
@@ -138,8 +177,14 @@ app.get('/api/user/saved', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
       .populate('savedColleges')
-      .populate('savedComparisons.colleges');
-    res.json({ savedColleges: user.savedColleges, savedComparisons: user.savedComparisons });
+      .populate('savedComparisons.colleges')
+      .populate('recentlyViewed');
+      
+    res.json({ 
+      savedColleges: user.savedColleges, 
+      savedComparisons: user.savedComparisons,
+      recentlyViewed: user.recentlyViewed 
+    });
   } catch (err) { res.status(500).send('Server error'); }
 });
 
@@ -149,11 +194,8 @@ app.post('/api/user/save-college', auth, async (req, res) => {
     const { collegeId } = req.body;
     const index = user.savedColleges.indexOf(collegeId);
     
-    if (index > -1) {
-      user.savedColleges.splice(index, 1);
-    } else {
-      user.savedColleges.push(collegeId);
-    }
+    if (index > -1) { user.savedColleges.splice(index, 1); } 
+    else { user.savedColleges.push(collegeId); }
     
     await user.save();
     res.json(user.savedColleges);
@@ -167,6 +209,23 @@ app.post('/api/user/save-comparison', auth, async (req, res) => {
     user.savedComparisons.push({ colleges: collegeIds });
     await user.save();
     res.json(user.savedComparisons);
+  } catch (err) { res.status(500).send('Server error'); }
+});
+
+app.post('/api/user/track-view', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    const { collegeId } = req.body;
+
+    user.recentlyViewed = user.recentlyViewed.filter(id => id.toString() !== collegeId);
+    user.recentlyViewed.unshift(collegeId);
+
+    if (user.recentlyViewed.length > 5) {
+      user.recentlyViewed.pop(); 
+    }
+
+    await user.save();
+    res.json(user.recentlyViewed);
   } catch (err) { res.status(500).send('Server error'); }
 });
 
@@ -185,7 +244,7 @@ app.post('/api/questions', auth, async (req, res) => {
     const newQuestion = new Question({
       text: req.body.text,
       author: req.user.id,
-      authorName: user.email.split('@')[0] // Basic display name
+      authorName: user.email.split('@')[0]
     });
     await newQuestion.save();
     res.json(newQuestion);
@@ -210,5 +269,5 @@ app.post('/api/questions/:id/answers', auth, async (req, res) => {
   } catch (error) { res.status(500).json({ error: 'Server Error' }); }
 });
 
-const PORT = process.env.PORT ;
+const PORT = process.env.PORT;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
