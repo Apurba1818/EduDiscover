@@ -7,14 +7,14 @@ import { Search, MapPin, IndianRupee, Star, CheckSquare, Square, BookmarkPlus, B
 const Home = () => {
   const [colleges, setColleges] = useState([]);
   const [availableLocations, setAvailableLocations] = useState([]);
-  const [availableCourses, setAvailableCourses] = useState([]); // NEW
+  const [availableCourses, setAvailableCourses] = useState([]); 
   const [feeOptions, setFeeOptions] = useState([]);
   
   // 1. SMART STATE PERSISTENCE
   const [search, setSearch] = useState(sessionStorage.getItem('eduSearch') || '');
   const [debouncedSearch, setDebouncedSearch] = useState(sessionStorage.getItem('eduSearch') || '');
   const [location, setLocation] = useState(sessionStorage.getItem('eduLocation') || '');
-  const [course, setCourse] = useState(sessionStorage.getItem('eduCourse') || ''); // NEW
+  const [course, setCourse] = useState(sessionStorage.getItem('eduCourse') || ''); 
   const [maxFees, setMaxFees] = useState(sessionStorage.getItem('eduMaxFees') || '');
   const [page, setPage] = useState(Number(sessionStorage.getItem('eduPage')) || 1);
   
@@ -31,7 +31,7 @@ const Home = () => {
   useEffect(() => {
     sessionStorage.setItem('eduSearch', search);
     sessionStorage.setItem('eduLocation', location);
-    sessionStorage.setItem('eduCourse', course); // NEW
+    sessionStorage.setItem('eduCourse', course); 
     sessionStorage.setItem('eduMaxFees', maxFees);
     sessionStorage.setItem('eduPage', page);
   }, [search, location, course, maxFees, page]);
@@ -48,17 +48,15 @@ const Home = () => {
   useEffect(() => {
     const fetchDynamicFilters = async () => {
       try {
-        // Fetch Location, Fees, AND Courses at the exact same time
         const [locRes, feeRes, courseRes] = await Promise.all([
           api.get('/colleges/locations'),
           api.get('/colleges/max-fee'),
-          api.get('/colleges/courses') // NEW
+          api.get('/colleges/courses') 
         ]);
         
         setAvailableLocations(locRes.data);
-        setAvailableCourses(courseRes.data); // Set dynamic courses
+        setAvailableCourses(courseRes.data); 
 
-        // Generate dynamic fee brackets in increments of 5 Lakhs
         const max = feeRes.data.maxFee;
         const generatedOptions = [];
         for (let i = 500000; i <= max + 500000; i += 500000) {
@@ -67,7 +65,7 @@ const Home = () => {
         setFeeOptions(generatedOptions);
 
       } catch (error) {
-        console.error("Error fetching filter data. Did you restart the backend?", error);
+        console.error("Error fetching filter data", error);
       }
     };
     fetchDynamicFilters();
@@ -76,7 +74,6 @@ const Home = () => {
   const fetchColleges = async () => {
     setLoading(true);
     try {
-      // Pass the course to the backend API
       const { data } = await api.get('/colleges', { 
         params: { search: debouncedSearch, location, course, maxFees, page, limit: 9 } 
       });
@@ -99,24 +96,27 @@ const Home = () => {
     }
   };
 
-  // Trigger fetches instantly when filters or page change
   useEffect(() => {
     fetchColleges();
     fetchUserSaved(); 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, debouncedSearch, location, course, maxFees, user]);
 
-  // Reset page to 1 when any filter changes
   const handleLocationChange = (e) => { setLocation(e.target.value); setPage(1); };
-  const handleCourseChange = (e) => { setCourse(e.target.value); setPage(1); }; // NEW
+  const handleCourseChange = (e) => { setCourse(e.target.value); setPage(1); }; 
   const handleMaxFeesChange = (e) => { setMaxFees(e.target.value); setPage(1); };
   const handleSearchChange = (e) => { setSearch(e.target.value); setPage(1); };
 
-  // 3. CLEAR FILTERS LOGIC
+  // --- NEW: Handle Page Change & Scroll to Top ---
+  const handlePageChange = (newPage) => {
+    setPage(newPage);
+    document.getElementById('discover').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const clearAllFilters = () => {
     setSearch('');
     setLocation('');
-    setCourse(''); // NEW
+    setCourse(''); 
     setMaxFees('');
     setPage(1);
   };
@@ -193,7 +193,6 @@ const Home = () => {
             ))}
           </select>
           
-          {/* NEW COURSE DROPDOWN */}
           <select 
             className="w-full sm:w-auto border border-slate-200 p-2.5 rounded-lg outline-none bg-white focus:ring-2 focus:ring-indigo-500 max-w-[200px] truncate" 
             value={course} 
@@ -218,7 +217,6 @@ const Home = () => {
             ))}
           </select>
           
-          {/* HIGHLY VISIBLE CLEAR FILTERS BUTTON */}
           {(search || location || course || maxFees) && (
             <button 
               onClick={clearAllFilters} 
@@ -350,12 +348,28 @@ const Home = () => {
         </div>
       )}
 
-      {/* Pagination */}
+      {/* --- FIX APPLIED HERE: Pagination now triggers handlePageChange --- */}
       {!loading && colleges.length > 0 && (
         <div className="flex justify-center mt-10 gap-2 flex-wrap items-center">
-          <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-5 py-2.5 bg-white border border-slate-200 rounded-lg disabled:opacity-50 hover:bg-slate-50 font-medium text-slate-700 transition text-sm sm:text-base">Previous</button>
-          <span className="px-4 py-2 text-sm sm:text-base font-semibold text-slate-600">Page {page} of {totalPages}</span>
-          <button disabled={page === totalPages} onClick={() => setPage(page + 1)} className="px-5 py-2.5 bg-white border border-slate-200 rounded-lg disabled:opacity-50 hover:bg-slate-50 font-medium text-slate-700 transition text-sm sm:text-base">Next</button>
+          <button 
+            disabled={page === 1} 
+            onClick={() => handlePageChange(page - 1)} 
+            className="px-5 py-2.5 bg-white border border-slate-200 rounded-lg disabled:opacity-50 hover:bg-slate-50 font-medium text-slate-700 transition text-sm sm:text-base"
+          >
+            Previous
+          </button>
+          
+          <span className="px-4 py-2 text-sm sm:text-base font-semibold text-slate-600">
+            Page {page} of {totalPages}
+          </span>
+          
+          <button 
+            disabled={page === totalPages} 
+            onClick={() => handlePageChange(page + 1)} 
+            className="px-5 py-2.5 bg-white border border-slate-200 rounded-lg disabled:opacity-50 hover:bg-slate-50 font-medium text-slate-700 transition text-sm sm:text-base"
+          >
+            Next
+          </button>
         </div>
       )}
 
